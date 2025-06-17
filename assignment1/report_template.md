@@ -8,11 +8,11 @@
 
 **Course**: ECE 572; Summer 2025
 **Instructor**: Dr. Ardeshir Shojaeinasab
-**Student Name**: [Your Name]  
-**Student ID**: [Your Student ID]  
-**Assignment**: [Assignment 1/2/3]  
-**Date**: [Submission Date]  
-**GitHub Repository**: [Link to **your** forked repository]
+**Student Name**: Zhang Zhang  
+**Student ID**: V01046193  
+**Assignment**: Assignment 1
+**Date**: June 16, 2025
+**GitHub Repository**: https://github.com/Zzzzzzzach/ECE572_Summer2025_SecureText
 
 ---
 
@@ -34,7 +34,7 @@ Keep this section to 1-2 paragraphs.
 
 1. [Introduction](#introduction)
 2. [Task Implementation](#task-implementation)
-   - [Task X](#task-x)
+   - [Task 1 Security Vulnerability Analysis](#task-x)
    - [Task Y](#task-y)
    - [Task Z](#task-z)
 3. [Security Analysis](#security-analysis)
@@ -56,8 +56,8 @@ Keep this section to 1-2 paragraphs.
 
 ### 1.3 Environment Setup
 <!-- Briefly describe your development environment -->
-- **Operating System**: 
-- **Python Version**: 
+- **Operating System**: MacOS Sequoia
+- **Python Version**: 3.13.0
 - **Key Libraries Used**: 
 - **Development Tools**: 
 
@@ -67,36 +67,91 @@ Keep this section to 1-2 paragraphs.
 
 <!-- Replace Task X, Y, Z with actual task numbers and names  -->
 
-### 2.1 Task X: [Task Name]
+### 2.1 Task 1: Security Vulnerability Analysis
+**Objective**: Analyze the provided insecure messenger application and identify security weaknesses.
 
-#### 2.1.2 Implementation Details
-<!-- Describe your implementation approach and include the corresponding screenshots -->
+#### 1. No Password Complexity Requirements
+**Category**: Authentication
+**Description**: The application allows users to set any password without checking complexity rules such as minimum length, character diversity, or blacklisting common passwords.
+**Impact**: This exposes user accounts to brute-force and dictionary attacks.
+**Principles**: "Security of a password-based authentication system rests
+entirely on the attacker’s inability to guess the password in a small
+number of guesses." So increasing length or character diversity will make harder for the attacker to breach the system.
 
-**Key Components**:
-- Component 1: [Description]
-- Component 2: [Description]
-- Component 3: [Description]
+##### Attack Scenarios
+**What the attacker needs**
+Access to the login interface and a dictionary of common passwords.
 
-**Code Snippet** (Key Implementation):
-```python
-# Include only the most important code snippets
-# Do not paste entire files as the actual attack or security-fixed codes are included in the deliverables directory
-def key_function():
-    # Your implementation
-    pass
-```
+**What they could achieve**
+The attacker could brute-force or guess a user’s password in a small number of attempts. This leads to full account compromise.
 
-#### 2.1.3 Challenges and Solutions
-<!-- What problems did you encounter and how did you solve them? -->
+**Final thoughts and solution**
+Systems should enforce password complexity rules.
 
-#### 2.1.4 Testing and Validation
-<!-- How did you test that your implementation works correctly? -->
+#### 2. Password Reset Requires No Identity Verification
+**Category**: Authentication
+**Description**: The password reset functionality does not require the user’s current password, nor does it perform any meaningful identity verification. The security question is hard-coded with the same answer for all users and not used during the reset process.
+**Impact**: An attacker who knows a valid username can easily reset the corresponding password and take over the account.
+**Principles**: “The implementation must verify reset through secure means.” The Sarah Palin email hack case highlights the dangers of relying on easily guessable or publicly available reset information. However, in this application, the password can be changed without even requiring the original password
+##### Attack Scenarios
+**What the attacker needs**
+A known username and access to the reset command.
 
-**Test Cases**
-**Evidence**:
-<!-- Include extra screenshots, logs, or other evidence -->
+**What they could achieve**
+The attacker could take over another user's account by resetting their password without proving ownership.
 
----
+**Final thoughts and solution**
+Reset functions must include robust identity verification such as original password, secret questions, email verification.
+
+#### 3. Plaintext Storage of Usernames and Passwords on Disk
+**Category**: Data Protection
+**Description**: User credentials are stored in a local JSON file in plaintext. There is no encryption or hashing applied to the data.
+**Impact**: Anyone who gains access to the disk or file system can directly read all usernames and passwords.
+**Principles**: According to Kerckhoff’s Principle, “The only thing that we keep secret from the adversary are the system’s secret keys.”. However, in this application, passwords are stored in plaintext, meaning that if the storage is exposed, all user secrets are immediately compromised.
+
+##### Attack Scenarios
+**What the attacker needs**
+File system access to users.json
+
+**What they could achieve**
+Instant access to all usernames and passwords in plaintext.
+
+**Final thoughts and solution**
+Sensitive user data should never be stored in plaintext. Passwords must be hashed using salted password hashing functions.
+
+#### 4. Messages Transmitted in Plaintext Over TCP
+**Category**: Communication Security
+**Description**: The application uses raw TCP sockets to transmit authentication data and chat messages without any encryption.
+**Impact**: This leaves all data vulnerable to interception and tampering by a network-level attacker.
+**Principles**: Application need to protect against eavesdropping attacks and active attacks, recommending the use of challenge-response protocols and digital signatures for secure communication.
+
+##### Attack Scenarios
+**What the attacker needs**
+Ability to sniff network traffic
+
+**What they could achieve**
+Intercept and read messages, usernames, and passwords. The attacker could also inject or modify messages by doing man-in-the-middle attacks.
+
+**Final thoughts and solution**
+All communication must be encrypted through TLS or other methods.
+
+
+#### 5. No Account Lockout or Rate Limiting on Login
+**Category**: Authentication
+**Description**: The application does not enforce any limits on login attempts, nor does it introduce delays or blocks after failed attempts.
+**Impact**: This allows an attacker to repeatedly guess passwords without resistance, making brute-force attacks feasible.
+**Principles**: The course discussed the importance of rate limiting and guess caps to prevent online password guessing, especially in systems that rely on weak user-chosen passwords.
+
+##### Attack Scenarios
+**What the attacker needs**
+Access to the login interface.
+
+**What they could achieve**
+They could perform an online brute-force attack, testing hundreds or thousands of passwords until one works.
+
+**Final thoughts and solution**
+Application could use protections such as rate limiting, exponential backoff, and account lockouts to prevent brute-force attacks on authentication endpoints.
+
 
 ### 2.2 Task Y: [Task Name]
 
