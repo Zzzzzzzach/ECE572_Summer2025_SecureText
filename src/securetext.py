@@ -19,6 +19,13 @@ import os
 import sys
 import time
 from datetime import datetime
+import hashlib
+import bcrypt
+import base64
+
+HASH_METHOD = "bcrypt"
+
+SHARED_KEY = b'this_is_a_secret_shared_key'
 
 class SecureTextServer:
     def __init__(self, host='localhost', port=12345):
@@ -28,7 +35,36 @@ class SecureTextServer:
         self.users = self.load_users()
         self.active_connections = {}  # username -> connection
         self.server_socket = None
-        
+
+    @staticmethod
+    def generate_salt():
+        return base64.b64encode(os.urandom(16)).decode('utf-8')
+    @staticmethod
+    def generate_mac(message: str) -> str:
+        return hashlib.md5(SHARED_KEY + message.encode('utf-8')).hexdigest()
+    
+    def verify_mac(self, message: str, mac: str) -> bool:
+        return self.generate_mac(message) == mac
+
+    def hash_password(self, password, salt, method=HASH_METHOD) -> str:
+        if method == "sha256":
+            return hashlib.sha256(password.encode('utf-8')).hexdigest()
+        elif method == "bcrypt":
+            password = password+salt
+            return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt(rounds=12)).decode('utf-8')
+        else:
+            return password
+
+    def verify_password(self, password, stored_hash, salt, method=HASH_METHOD) -> bool:
+        print(f"{password} , {stored_hash}, {method}")
+        if method == "sha256":
+            return hashlib.sha256(password.encode('utf-8')).hexdigest() == stored_hash
+        elif method == "bcrypt":
+            password = password+salt
+            return bcrypt.checkpw(password.encode('utf-8'), stored_hash.encode('utf-8'))
+        else:
+            return password == stored_hash
+
     def load_users(self):
         """Load users from JSON file or create empty dict if file doesn't exist"""
         if os.path.exists(self.users_file):
@@ -51,10 +87,30 @@ class SecureTextServer:
         """Create new user account - stores password in PLAINTEXT!"""
         if username in self.users:
             return False, "Username already exists"
-        
+        salt = self.generate_salt()
+
+        # start = time.time()
+        hashed_pw = self.hash_password(password, salt, HASH_METHOD)
+        # interval = time.time()-start
+
+        # print(f'{HASH_METHOD} costs {interval} seconds to complete.')
+#       sha256 costs 3.0994415283203125e-05 seconds to complete.
+#       sha256 costs 2.4080276489257812e-05 seconds to complete.
+#       sha256 costs 1.6927719116210938e-05 seconds to complete.
+#       sha256 costs 1.5974044799804688e-05 seconds to complete.
+#       sha256 costs 2.47955322265625e-05 seconds to complete.
+
+#       bcrypt costs 0.21899008750915527 seconds to complete.
+#       bcrypt costs 0.21755099296569824 seconds to complete.
+#       bcrypt costs 0.21746587753295898 seconds to complete.
+#       bcrypt costs 0.21658706665039062 seconds to complete.
+#       bcrypt costs 0.21867704391479492 seconds to complete.
+
         # SECURITY VULNERABILITY: Storing password in plaintext!
         self.users[username] = {
-            'password': password,  # PLAINTEXT PASSWORD!
+            'password': hashed_pw,  # PLAINTEXT PASSWORD!
+            'hash_method': HASH_METHOD,
+            'salt': salt,
             'created_at': datetime.now().isoformat(),
             'reset_question': 'What is your favorite color?',
             'reset_answer': 'blue'  # Default for simplicity
@@ -67,19 +123,35 @@ class SecureTextServer:
         if username not in self.users:
             return False, "Username not found"
         
-        # SECURITY VULNERABILITY: Plaintext password comparison!
-        if self.users[username]['password'] == password:
+        if self.verify_password(password, self.users[username]['password'], self.users[username].get('salt'), self.users[username].get("hash_method", "plaintext")):
+            if self.users[username].get('hash_method') == None :
+                self.migrate_plaintext_user(username, password)
             return True, "Authentication successful"
         else:
             return False, "Invalid password"
+
+    def migrate_plaintext_user(self, username, password):
+        salt = self.generate_salt()
+        hashed_pw = self.hash_password(password, salt, HASH_METHOD)
+
+        self.users[username]['password'] = hashed_pw
+        self.users[username]['salt'] = salt
+        self.users[username]['hash_method'] = HASH_METHOD
+        self.save_users()
     
     def reset_password(self, username, new_password):
         """Basic password reset - just requires existing username"""
         if username not in self.users:
             return False, "Username not found"
         
-        # SECURITY VULNERABILITY: No proper verification for password reset!
-        self.users[username]['password'] = new_password
+        salt = self.users[username].get('salt')
+        if not salt:
+            salt = self.generate_salt()
+            self.user[username]['salt'] = salt
+        hashed_pw = self.hash_password(new_password, salt,HASH_METHOD)
+
+        self.users[username]['password'] = hashed_pw
+        self.users[username]['hash_method'] = HASH_METHOD
         self.save_users()
         return True, "Password reset successful"
     
@@ -126,6 +198,7 @@ class SecureTextServer:
                                     'type': 'MESSAGE',
                                     'from': current_user,
                                     'content': msg_content,
+                                    'mac': message.get('mac'),
                                     'timestamp': datetime.now().isoformat()
                                 }
                                 try:
@@ -207,12 +280,23 @@ class SecureTextClient:
         self.logged_in = False
         self.username = None
         self.running = False
-        
+        self.last_command_response = None
+        self.response_event = threading.Event()
+
+    @staticmethod
+    def generate_mac(message: str) -> str:
+        return hashlib.md5(SHARED_KEY + message.encode('utf-8')).hexdigest()
+    
+    def verify_mac(self, message: str, mac: str) -> bool:
+        return self.generate_mac(message) == mac
+
     def connect(self):
         """Connect to the server"""
         try:
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.socket.connect((self.host, self.port))
+            threading.Thread(target=self.listen_for_messages, daemon=True).start()
+
             return True
         except ConnectionRefusedError:
             print("Error: Could not connect to server. Make sure the server is running.")
@@ -225,23 +309,39 @@ class SecureTextClient:
         """Send command to server and get response"""
         try:
             self.socket.send(json.dumps(command_data).encode('utf-8'))
-            response = self.socket.recv(1024).decode('utf-8')
-            return json.loads(response)
+            if self.response_event.wait(timeout=5):  # wait max 5 seconds
+                print(self.last_command_response)
+                response = self.last_command_response
+                self.last_command_response = None
+                self.response_event.clear()
+                return response
+            # response = self.socket.recv(1024).decode('utf-8')
+            # return json.loads(response)
         except Exception as e:
             print(f"Communication error: {e}")
             return {'status': 'error', 'message': 'Communication failed'}
     
     def listen_for_messages(self):
         """Listen for incoming messages in a separate thread"""
-        while self.running:
+        while True:
             try:
                 data = self.socket.recv(1024).decode('utf-8')
                 if data:
                     message = json.loads(data)
-                    if message.get('type') == 'MESSAGE':
-                        print(f"\n[{message['timestamp']}] {message['from']}: {message['content']}")
-                        print(">> ", end="", flush=True)
-            except:
+                    print(f"listen received message {message}")
+                    if self.username != None and message.get('type') == 'MESSAGE' and message.get('mac'):
+                        if not self.verify_mac(message['content'], message.get('mac')):
+                            print("mac not match")
+                            print(f"{mac}, {self.generate_mac(message['content'])}")
+                        else:
+                            print(f"\n[{message['timestamp']}] {message['from']}: {message['content']}")
+                            print(">> ", end="", flush=True)
+                    else:
+                        print('?????')
+                        self.last_command_response = message
+                        self.response_event.set()
+            except Exception as e:
+                print("Error generating MAC:", e)
                 break
     
     def create_account(self):
@@ -282,11 +382,6 @@ class SecureTextClient:
             self.logged_in = True
             self.username = username
             self.running = True
-            
-            # Start listening for messages
-            listen_thread = threading.Thread(target=self.listen_for_messages)
-            listen_thread.daemon = True
-            listen_thread.start()
     
     def send_message(self):
         """Send a message to another user"""
@@ -297,7 +392,7 @@ class SecureTextClient:
         print("\n=== Send Message ===")
         recipient = input("Enter recipient username: ").strip()
         content = input("Enter message: ").strip()
-        
+        mac = self.generate_mac(content)
         if not recipient or not content:
             print("Recipient and message cannot be empty!")
             return
@@ -305,7 +400,8 @@ class SecureTextClient:
         command = {
             'command': 'SEND_MESSAGE',
             'recipient': recipient,
-            'content': content
+            'content': content,
+            'mac': mac
         }
         
         response = self.send_command(command)

@@ -1,13 +1,17 @@
 {
   "zz": {
-    "password": "111",
-    "created_at": "2025-06-16T23:46:24.166527",
+    "password": "$2b$12$9Bxsa6xQWO97NRucwT3osu1tABOW6DaB4BgySGIHILo6EhGnO9vwy",
+    "hash_method": "bcrypt",
+    "salt": "LkHLSbCPdRaApdGB52Jpag==",
+    "created_at": "2025-06-19T23:02:23.868026",
     "reset_question": "What is your favorite color?",
     "reset_answer": "blue"
   },
-  "player": {
-    "password": "1",
-    "created_at": "2025-06-16T23:47:02.319223",
+  "player1": {
+    "password": "$2b$12$FgM.App0cpju9NQphHqJ4OSnEclkkokpUK2k7pWCTUVDUBMU2/kqC",
+    "hash_method": "bcrypt",
+    "salt": "skzKatZB5fTmnSLeJDV4Jw==",
+    "created_at": "2025-06-19T23:05:17.474370",
     "reset_question": "What is your favorite color?",
     "reset_answer": "blue"
   }
